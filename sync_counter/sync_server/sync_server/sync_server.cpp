@@ -5,33 +5,67 @@
 using namespace boost::asio::ip;
 using namespace std;
 const int max_length = 1024;
+#define OPSZ 4
 typedef std::shared_ptr<tcp::socket> sock_ptr;
 std::set<std::shared_ptr<std::thread>> thread_set;
 
+int calculate(int opnum, int opnds[], char op) {
+    int result = opnds[0];
+    switch (op) {
+    case '+': {
+        for (int i = 1; i < opnum; ++i) result += opnds[i];
+        break;
+    }
+    case '-': {
+        for (int i = 1; i < opnum; ++i) result -= opnds[i];
+        break;
+    }
+    case '*': {
+        for (int i = 1; i < opnum; ++i) result *= opnds[i];
+        break;
+    }
+    }
+    return result;
+}
+
 //为服务端处理客户端请求, 每当接受客户端连接就调用该函数
 void session(sock_ptr sock) {
-    try {
-        cout << "server is running" << endl;
-        for (;;) {
+    for (;;) {
+        try {
+            cout << "server is running" << endl;
             char data[max_length];
             memset(data, '\0', sizeof(data));
             boost::system::error_code error;
-            size_t length = sock->read_some(boost::asio::buffer(data, max_length), error);
+
+            char opnum_char;
+            boost::asio::read(*sock, boost::asio::buffer(&opnum_char, 1));
+            int opnum = (unsigned char)opnum_char;
+
+            // 计算预期的数据大小
+            size_t expected_size = opnum * OPSZ + 1;
+
+            // 读取完整的消息
+            boost::asio::read(*sock, boost::asio::buffer(data, expected_size), 
+                boost::asio::transfer_exactly(expected_size), error);
             if (error == boost::asio::error::eof) {
-                cout << "connection closed by peer" << endl;
+                cout << "Connection closed by peer" << endl;
+                break;
             }
             else if (error) {
                 throw boost::system::system_error(error);
             }
 
-            cout << "receive from" << sock->remote_endpoint().address().to_string() << endl;
-            cout << "receive message is: " << data << endl;
+            int* opnds = (int*)&data[0];
+            char op = data[expected_size - 1];
+            int result = calculate(opnum, opnds, op);
+
             //回传信息值
-            boost::asio::write(*sock, boost::asio::buffer(data, length));
+            boost::asio::write(*sock, boost::asio::buffer(&result, 
+                sizeof(result)), boost::asio::transfer_all());
         }
-    }
-    catch (std::exception& e) {
-        cerr << "Exception is: " << e.what() << endl;
+        catch (std::exception& e) {
+            cerr << "Exception is: " << e.what() << endl;
+        }
     }
 }
 
@@ -53,15 +87,6 @@ int main()
     try {
         boost::asio::io_context ioc;
         server(ioc, 5283);
-        std::thread server_thread(server, std::ref(ioc), 5283);
-
-        // 主线程等待用户输入，用于测试
-        std::string input;
-        std::getline(std::cin, input);
-
-        // 关闭服务器
-        ioc.stop();
-        server_thread.join();
 
         for (auto t : thread_set) {
             t->join();

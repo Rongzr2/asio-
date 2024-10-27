@@ -3,6 +3,7 @@
 using namespace std;
 using namespace boost::asio::ip;
 const int MAX_LENGTH = 1024;
+#define OPSZ 4
 
 int main()
 {
@@ -15,17 +16,31 @@ int main()
         boost::system::error_code error = boost::asio::error::host_not_found;
         sock.connect(remote_ep, error);
 
-        cout << "Enter message: ";
-        char request[MAX_LENGTH];
-        cin.getline(request, MAX_LENGTH);
-        size_t request_length = strlen(request);
-        boost::asio::write(sock, boost::asio::buffer(request, request_length));
+        //魔改算数器
+        cout << "Operand count: ";
+        char opmsg[MAX_LENGTH];
+        int opmsg_cnt = 0;
+        cin >> opmsg_cnt;
+        opmsg[0] = (char)opmsg_cnt;
+
+        for (int i = 0; i < opmsg_cnt; ++i) {
+            cout << "Operand " << i + 1 << ": ";
+            int value;
+            cin >> value;
+            *(int*)&opmsg[i * OPSZ + 1] = value;
+        }
+        cout << "Operator: ";
+        char op;
+        cin >> op;
+        opmsg[opmsg_cnt * OPSZ + 1] = op;
+        boost::asio::write(sock, boost::asio::buffer(opmsg, opmsg_cnt * OPSZ + 2));
 
         char reply[MAX_LENGTH];
-        size_t reply_length = boost::asio::read(sock, boost::asio::buffer(reply, request_length));
-        cout << "Reply is: ";
-        cout.write(reply, reply_length);
-        cout << "\n";
+        size_t reply_length = boost::asio::read(sock, 
+            boost::asio::buffer(reply, sizeof(int)), boost::asio::transfer_all());
+        cout << "Operation result is: ";
+        int result = *(int*)reply;
+        cout << result << "\n";
     }
     catch (std::exception& e) {
         cerr << "Exception: " << e.what() << endl;
